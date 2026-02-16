@@ -4,8 +4,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Phone, Mail, User, Check, Loader2 } from 'lucide-react';
+import { Phone, Mail, User, Check, Loader2, AlertCircle } from 'lucide-react';
 import { useLeads } from '@/hooks/useLeads';
+import { useRateLimit, RATE_LIMITS } from '@/lib/rateLimiter';
+import { sanitizeFormData } from '@/lib/sanitize';
+import { HCaptchaWrapper } from '@/components/HCaptchaWrapper';
 import type { LeadType } from '@/types';
 
 interface LeadFormBaseProps {
@@ -26,7 +29,17 @@ export const LeadFormBase = ({
   submitLabel = 'Enviar consulta',
 }: LeadFormBaseProps) => {
   const { createLead, loading } = useLeads();
+  const { checkLimit } = useRateLimit(
+    `form_${type}`, 
+    RATE_LIMITS.FORM_SUBMIT.maxRequests, 
+    RATE_LIMITS.FORM_SUBMIT.windowMs
+  );
+  
   const [submitted, setSubmitted] = useState(false);
+  const [rateLimitError, setRateLimitError] = useState(false);
+  const [sanitizeError, setSanitizeError] = useState('');
+  const [captchaToken, setCaptchaToken] = useState('');
+  const [captchaError, setCaptchaError] = useState(false);
   const [formData, setFormData] = useState({
     nombre: '',
     apellido: '',
@@ -39,29 +52,72 @@ export const LeadFormBase = ({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    // Limpiar errores al escribir
+    if (sanitizeError) setSanitizeError('');
+  };
+
+  const handleCaptchaVerify = (token: string) => {
+    setCaptchaToken(token);
+    setCaptchaError(false);
+  };
+
+  const handleCaptchaError = () => {
+    setCaptchaToken('');
+    setCaptchaError(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // ✅ VERIFICAR CAPTCHA
+    if (!captchaToken) {
+      setCaptchaError(true);
+      return;
+    }
+
+    // ✅ VERIFICAR RATE LIMIT
+    const { allowed } = checkLimit();
+    
+    if (!allowed) {
+      setRateLimitError(true);
+      setTimeout(() => setRateLimitError(false), 5000);
+      return;
+    }
+
     if (!formData.acepta_terminos) {
       alert('Debes aceptar los términos y condiciones');
       return;
     }
 
-    const result = await createLead({
-      type,
-      nombre: formData.nombre,
-      apellido: formData.apellido,
-      email: formData.email,
-      telefono: formData.telefono,
-      whatsapp: formData.whatsapp || formData.telefono,
-      source: 'web',
-    });
+    try {
+      // ✅ SANITIZAR DATOS
+      const sanitized = sanitizeFormData(formData, {
+        nombre: 'text',
+        apellido: 'text',
+        email: 'email',
+        telefono: 'phone',
+        whatsapp: 'phone',
+      });
 
-    if (result.success) {
-      setSubmitted(true);
-      onSuccess?.();
+      const result = await createLead({
+        type,
+        nombre: sanitized.nombre,
+        apellido: sanitized.apellido,
+        email: sanitized.email,
+        telefono: sanitized.telefono,
+        whatsapp: sanitized.whatsapp || sanitized.telefono,
+        source: 'web',
+      });
+
+      if (result.success) {
+        setSubmitted(true);
+        onSuccess?.();
+      }
+    } catch (error) {
+      // Error de sanitización
+      const errorMessage = error instanceof Error ? error.message : 'Error al procesar los datos';
+      setSanitizeError(errorMessage);
+      setTimeout(() => setSanitizeError(''), 5000);
     }
   };
 
@@ -82,8 +138,8 @@ export const LeadFormBase = ({
             <p className="text-sm text-gray-500">
               ¿Preferís hablar por WhatsApp?
             </p>
-            <a
-              href={`https://wa.me/${import.meta.env.VITE_C21_WHATSAPP || '5492617166129'}`}
+            
+             <a href={'https://wa.me/' + (import.meta.env.VITE_C21_WHATSAPP || '5492617166129')}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 mt-2 text-green-600 hover:text-green-700 font-medium"
@@ -104,6 +160,51 @@ export const LeadFormBase = ({
           <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
           {subtitle && <p className="text-gray-600 mt-1">{subtitle}</p>}
         </div>
+
+        {/* ⚠️ ALERTA DE RATE LIMIT */}
+        {rateLimitError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-red-800">
+                Demasiados intentos
+              </p>
+              <p className="text-sm text-red-700 mt-1">
+                Por favor esperá 1 minuto antes de enviar nuevamente el formulario.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ⚠️ ALERTA DE SANITIZACIÓN */}
+        {sanitizeError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-red-800">
+                Error en los datos
+              </p>
+              <p className="text-sm text-red-700 mt-1">
+                {sanitizeError}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ⚠️ ALERTA DE CAPTCHA */}
+        {captchaError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-red-800">
+                Verificación requerida
+              </p>
+              <p className="text-sm text-red-700 mt-1">
+                Por favor completá la verificación de seguridad.
+              </p>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -190,7 +291,6 @@ export const LeadFormBase = ({
             </div>
           </div>
 
-          {/* Campos adicionales específicos */}
           {additionalFields && (
             <div className="pt-4 border-t border-gray-200">
               {additionalFields}
@@ -215,10 +315,16 @@ export const LeadFormBase = ({
             </Label>
           </div>
 
+          {/* ✅ CAPTCHA */}
+          <HCaptchaWrapper
+            onVerify={handleCaptchaVerify}
+            onError={handleCaptchaError}
+          />
+
           <Button
             type="submit"
-            disabled={loading}
-            className="w-full bg-[#c9a962] hover:bg-[#b8984f] text-black font-semibold"
+            disabled={loading || rateLimitError || !captchaToken}
+            className="w-full bg-[#c9a962] hover:bg-[#b8984f] text-black font-semibold disabled:opacity-50"
           >
             {loading ? (
               <>
