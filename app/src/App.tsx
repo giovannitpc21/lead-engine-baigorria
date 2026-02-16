@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
-// import { ProtectedPage } from '@/components/ProtectedPage';
+import { ProtectedPage } from '@/components/ProtectedPage';
 
 import { Navbar } from '@/components/ui-custom/Navbar';
 import { Footer } from '@/components/ui-custom/Footer';
@@ -33,7 +33,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => (
 function App() {
   return (
     <HelmetProvider>
-      {/* <ProtectedPage> */}
+      <ProtectedPage>
       <BrowserRouter>
         <Routes>
           {/* Admin - sin layout público */}
@@ -151,7 +151,7 @@ function App() {
           <Route path="*" element={<Home />} />
         </Routes>
       </BrowserRouter>
-      {/* </ProtectedPage> */}
+      </ProtectedPage>
     </HelmetProvider>
   );
 }
