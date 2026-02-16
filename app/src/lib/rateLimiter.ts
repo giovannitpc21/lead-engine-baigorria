@@ -1,4 +1,5 @@
 // src/lib/rateLimiter.ts
+import { logRateLimitExceeded } from './securityLogger';
 
 interface RateLimitConfig {
   maxRequests: number;
@@ -67,6 +68,10 @@ export const useRateLimit = (
     const identifier = `${getFingerprint()}_${action}`;
     const allowed = rateLimiter.isAllowed(identifier, { maxRequests, windowMs });
     
+    if (!allowed) {
+      logRateLimitExceeded(action);
+    }
+
     // Calcular requests restantes
     const now = Date.now();
     const userRequests = rateLimiter.getRequests().get(identifier) || [];

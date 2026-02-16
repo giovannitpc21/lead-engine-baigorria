@@ -1,4 +1,5 @@
 // src/lib/sanitize.ts
+import { logXssAttempt, logSqlInjectionAttempt } from './securityLogger';
 
 /**
  * Sanitiza texto general (nombre, mensaje, etc.)
@@ -175,10 +176,12 @@ export const detectXss = (input: string): boolean => {
 export const sanitizeAndValidate = (input: string, type: 'text' | 'email' | 'phone' = 'text'): string => {
   // Detectar ataques
   if (detectSqlInjection(input)) {
+    logSqlInjectionAttempt(input);
     throw new Error('Input sospechoso detectado (SQL)');
   }
   
   if (detectXss(input)) {
+    logXssAttempt(input);
     throw new Error('Input sospechoso detectado (XSS)');
   }
   
